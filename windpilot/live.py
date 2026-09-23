@@ -77,30 +77,60 @@ def run_live_forecast(config, horizon=48, model_path="artifacts/model.joblib", o
         raise ForecastError("Live weather configuration differs from training; use matching config.")
     weather, source = fetch_live_weather(config, origin, horizon)
     emit("weather_validated", rows=len(weather))
+    model_version = file_hash(model_path)
+    inputs = weather[["turbine_id", "valid_at", "wind_speed", "temperature", "weather_source"]].astype(str).to_dict("records")
+    # Same weather, model and target hours keep their original forecast origin.
+    # A changed weather payload gets a new real origin, never a backdated one.
+    input_signature = digest({"weather": inputs, "model": model_version,
+                              "weather_signature": bundle["weather_signature"], "horizon": horizon})
+    latest_path = Path(out_dir) / f"latest_{horizon}.json"
+    previous = json.loads(latest_path.read_text(encoding="utf-8")) if latest_path.exists() else None
+    previous_response = Path(out_dir) / previous["run_id"] / "response.json" if previous else None
+    if previous and previous.get("input_signature") == input_signature and previous_response.exists():
+        result = json.loads(previous_response.read_text(encoding="utf-8"))
+        run_id = result["run_id"]
+        emit("unchanged_inputs_reused", run_id=run_id)
+        result.update(status="reused", trace=events, checked_at=pd.Timestamp.now(tz="UTC").isoformat(),
+                      request_duration_ms=round((time.perf_counter() - started) * 1000, 2))
+        save_json(latest_path, {"run_id": run_id, "checked_at": result["checked_at"], "input_signature": input_signature})
+        return result
+    run_id = "live-" + digest({"origin": origin.isoformat(), "input_signature": input_signature})[:16]
+    folder = Path(out_dir) / run_id
     raw = predict(bundle, weather, observer=emit)
     if not np.isfinite(raw).all():
         raise ForecastError("Model returned non-finite live predictions.")
-    emit("analysis_completed")
-    model_version = file_hash(model_path)
-    run_id = "live-" + digest({"origin": origin.isoformat(), "weather": weather.astype(str).to_dict("records"), "model": model_version})[:16]
     forecast = weather.copy()
     forecast["power_pred"] = np.clip(raw, 0, 1)
     forecast["run_id"], forecast["model_version"] = run_id, model_version
+    emit("forecast_formed", rows=len(forecast), horizon=horizon)
     analysis = {"run_id": run_id, "forecast_origin": origin.isoformat(), "horizon_hours": horizon,
                 "created_at": pd.Timestamp.now(tz="UTC").isoformat(), "model_version": model_version,
                 "model_trained_until": bundle["trained_until"], "missing_weather_values": 0,
                 "clipped_prediction_count": int(((raw < 0) | (raw > 1)).sum()), "mode": "live_demo",
                 "limitations": ["Demonstration with current weather; the model was trained before February 2026.",
                                 "Live weather API does not expose forecast issuance time. No confidence interval."]}
-    folder = Path(out_dir) / run_id
+    if previous and previous["run_id"] != run_id:
+        previous_path = Path(out_dir) / previous["run_id"] / "forecast.csv"
+        if previous_path.exists():
+            old = pd.read_csv(previous_path)
+            old["valid_at"] = pd.to_datetime(old.valid_at, utc=True)
+            paired = forecast.merge(old[["turbine_id", "valid_at", "power_pred"]], on=["turbine_id", "valid_at"], suffixes=("", "_previous"))
+            if len(paired):
+                analysis.update(previous_run_id=previous["run_id"], compared_hours=len(paired),
+                                mean_absolute_change=float((paired.power_pred - paired.power_pred_previous).abs().mean()))
+    emit("analysis_completed", clipped=analysis["clipped_prediction_count"], rows=len(forecast))
     folder.mkdir(parents=True, exist_ok=True)
     forecast.to_csv(folder / "forecast.csv", index=False)
     save_json(folder / "analysis.json", analysis)
     save_json(folder / "source.json", source)
     emit("completed", run_id=run_id)
     save_json(folder / "trace.json", events)
-    return {"run_id": run_id, "status": "created", "mode": "live_demo", "forecast_origin": origin.isoformat(),
+    result = {"run_id": run_id, "status": "created", "mode": "live_demo", "forecast_origin": origin.isoformat(),
             "timezone": config["history_timezone"], "horizon_hours": horizon, "row_count": len(forecast),
             "forecast": json.loads(forecast.to_json(orient="records", date_format="iso")), "analysis": analysis,
             "trace": events, "request_duration_ms": round((time.perf_counter() - started) * 1000, 2),
             "baseline": [], "baseline_note": "No current power observations are available.", "weather_connection": "online"}
+    result["checked_at"] = pd.Timestamp.now(tz="UTC").isoformat()
+    save_json(folder / "response.json", result)
+    save_json(latest_path, {"run_id": run_id, "checked_at": result["checked_at"], "input_signature": input_signature})
+    return result

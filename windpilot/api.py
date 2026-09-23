@@ -1,6 +1,8 @@
 """HTTP adapter around the existing agent. Start with one Uvicorn worker."""
 from datetime import date as Date
+from contextlib import asynccontextmanager
 import json
+import os
 from pathlib import Path
 from threading import Lock
 import time
@@ -15,14 +17,35 @@ from .common import ForecastError, read_config, utc
 from .model import load_model
 from .dashboard_data import baseline_at, quality_data
 from .live import LIVE_ENDPOINT, run_live_forecast
+from .scheduler import ForecastScheduler
+from .map_view import install_map_routes
 
 
 def create_app(config_path="config.json", model_path="artifacts/model.joblib",
-               validation_model_path="artifacts/validation_model.joblib", out_dir="artifacts/api_runs"):
-    app = FastAPI(title="WindPilot", version="0.1.0",
-                  description="Date denotes the first forecast day in station local time; origin is 23:00 the preceding day.")
+               validation_model_path="artifacts/validation_model.joblib", out_dir="artifacts/api_runs",
+               live_out_dir="artifacts/live_runs", auto_refresh_seconds=0):
     lock = Lock()
+
+    def live_cycle(horizon=48):
+        with lock:
+            return run_live_forecast(read_config(config_path), horizon, model_path, live_out_dir)
+
+    scheduler = ForecastScheduler(live_cycle, auto_refresh_seconds)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        scheduler.start()
+        yield
+        scheduler.stop()
+
+    app = FastAPI(title="WindPilot", version="0.2.0", lifespan=lifespan,
+                  description="Date denotes the first forecast day in station local time; origin is 23:00 the preceding day.")
     connection = {"checked_at": None, "monotonic": 0, "status": "offline"}
+    install_map_routes(app, config_path)
+
+    @app.get("/agent/status")
+    def agent_status():
+        return scheduler.snapshot()
 
     @app.get("/", include_in_schema=False)
     def dashboard():
@@ -54,8 +77,7 @@ def create_app(config_path="config.json", model_path="artifacts/model.joblib",
         if horizon not in (24, 48):
             raise HTTPException(status_code=422, detail="Horizon must be 24 or 48 hours.")
         try:
-            with lock:
-                result = run_live_forecast(read_config(config_path), horizon, model_path)
+            result = live_cycle(horizon)
             connection.update(status="online", checked_at=pd.Timestamp.now(tz="UTC").isoformat(), monotonic=time.monotonic())
             return result
         except (ForecastError, FileNotFoundError) as exc:
@@ -106,4 +128,4 @@ def create_app(config_path="config.json", model_path="artifacts/model.joblib",
     return app
 
 
-app = create_app()
+app = create_app(auto_refresh_seconds=int(os.getenv("WINDPILOT_AUTO_REFRESH_SECONDS", "900")))

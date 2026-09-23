@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin"><title>WindPilot · карта Windy</title>
+<style>
+:root{color-scheme:light;--bg:#f3f6fa;--card:#fff;--text:#162536;--muted:#556577;--line:#dae2ec;--accent:#1e6ff2}html[data-theme=dark]{color-scheme:dark;--bg:#111b28;--card:#182638;--text:#eaf1f9;--muted:#bdcbdb;--line:#33465d;--accent:#88b5ff}*{box-sizing:border-box}html,body{margin:0;height:100%;font:12px/1.5 'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text)}#wp-toolbar{height:68px;padding:10px 16px;display:flex;align-items:center;gap:12px;background:var(--card);border-bottom:1px solid var(--line)}#wp-info{flex:1;min-width:0}#wp-info strong{font-size:12px}#wp-time{color:var(--muted);font-size:11px}#wp-place{border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--text);font:inherit;padding:8px 10px;cursor:pointer}#windy{width:100%;height:calc(100% - 68px)}#wp-state{position:absolute;z-index:10000;inset:68px 0 0;display:grid;place-content:center;gap:12px;padding:28px;background:var(--bg);text-align:center;color:var(--muted)}#wp-state[hidden]{display:none}#wp-state p{max-width:440px;margin:0}#wp-state button{justify-self:center;padding:8px 16px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--text);font:inherit;cursor:pointer}.wp-marker{background:#1e6ff2;color:white;border:2px solid white;border-radius:50%;font:600 11px/24px 'Segoe UI',sans-serif;text-align:center;box-shadow:0 2px 6px #0005}#wp-loading{color:var(--muted);font-size:10px}#wp-place:disabled{opacity:.4;cursor:default}
+</style></head><body>
+<div id="wp-toolbar"><div id="wp-info"><strong id="wp-layer">Windy · ветер · GFS · у поверхности</strong><div id="wp-time">Ожидаем данные карты…</div><div id="wp-loading" role="status"></div></div><button id="wp-place" disabled>К установкам</button></div>
+<div id="windy" aria-label="Интерактивная карта прогноза ветра"></div>
+<div id="wp-state" role="status"><strong id="wp-state-title">Подключаем карту Windy</strong><p id="wp-state-text">Загружаем текущий прогноз ветра. Исторические расчёты WindPilot остаются отдельно.</p><button id="wp-retry" hidden>Повторить загрузку</button></div>
+<script>
+'use strict';
+const el=id=>document.getElementById(id);let watchdog;
+function theme(value){document.documentElement.dataset.theme=value==='dark'?'dark':'light'}
+try{theme(parent.document.documentElement.dataset.theme)}catch(_){}
+addEventListener('message',event=>{if(event.origin===location.origin&&event.source===parent&&event.data?.type==='windpilot-theme')theme(event.data.theme)});
+function fail(message){clearTimeout(watchdog);el('wp-state').hidden=false;el('wp-state-title').textContent='Карта временно недоступна';el('wp-state-text').textContent=message;el('wp-retry').hidden=false}
+function script(src){return new Promise((resolve,reject)=>{const node=document.createElement('script');node.src=src;node.onload=resolve;node.onerror=()=>reject(new Error('Не удалось загрузить библиотеку карты. Проверьте интернет и блокировщики.'));document.head.append(node)})}
+el('wp-retry').addEventListener('click',()=>location.reload());
+async function start(){
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);let cfg;
+ try{const response=await fetch('/map/config',{cache:'no-store',signal:controller.signal});if(!response.ok)throw new Error('Сервер не вернул настройки карты.');cfg=await response.json()}finally{clearTimeout(timeout)}
+ if(!cfg.enabled){fail('Ключ карты не настроен. Добавьте WINDY_MAP_API_KEY на сервере. Прогноз мощности доступен без карты.');return}
+ watchdog=setTimeout(()=>fail('Windy не подтвердил загрузку погодного слоя. Проверьте доступ к сервису, срок действия ключа и разрешённый домен.'),45000);
+ await script('https://unpkg.com/leaflet@1.4.0/dist/leaflet.js');
+ await script('https://api.windy.com/assets/map-forecast/libBoot.js');
+ const points=cfg.turbines.map(t=>[t.latitude,t.longitude]);
+ const lat=points.reduce((s,p)=>s+p[0],0)/points.length,lon=points.reduce((s,p)=>s+p[1],0)/points.length;
+ const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+ windyInit({key:cfg.key,lat,lon,zoom:7,product:cfg.product,overlay:cfg.overlay,level:cfg.level,timestamp:Date.now(),lang:'ru',hourFormat:'24h',particlesAnim:reduced?'off':'on',verbose:false},api=>{
+  const {map,store,broadcast}=api;
+  api.overlays.wind.setMetric('m/s');
+  for(const t of cfg.turbines){const popup=document.createElement('div');popup.textContent=`Установка ${t.id} · ${t.latitude.toFixed(6)}, ${t.longitude.toFixed(6)}. Входы модели мощности: Open-Meteo, ветер 100 м.`;
+   const icon=L.divIcon({className:'wp-marker',html:String(Number(t.id)),iconSize:[28,28],iconAnchor:[14,14]});
+   L.marker([t.latitude,t.longitude],{icon}).addTo(map).bindPopup(popup);
+  }
+  el('wp-place').disabled=false;el('wp-place').addEventListener('click',()=>map.fitBounds(points,{padding:[65,65],maxZoom:15}));
+  function metadata(){const at=Number(store.get('timestamp')),product=String(store.get('product')||'не указан'),level=String(store.get('level')||'не указан'),overlay=String(store.get('overlay')||'не указан');
+   el('wp-layer').textContent=`Windy · ${{wind:'ветер',temp:'температура',pressure:'давление'}[overlay]||overlay} · ${product.toUpperCase()} · ${level==='surface'?'у поверхности':level}`;
+   el('wp-time').textContent=Number.isFinite(at)&&at>0?'Время слоя: '+new Intl.DateTimeFormat('ru-RU',{timeZone:'Asia/Almaty',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',year:'numeric'}).format(new Date(at))+' · UTC+5':'Время слоя не сообщается';
+  }
+  broadcast.on('paramsChanged',()=>{metadata();el('wp-loading').textContent='Обновляем погодный слой…';clearTimeout(watchdog);watchdog=setTimeout(()=>fail('Новый погодный слой не загрузился. Последние данные могут быть устаревшими.'),45000)});
+  broadcast.on('redrawFinished',()=>{clearTimeout(watchdog);el('wp-state').hidden=true;el('wp-loading').textContent='Погодный слой загружен';metadata()});
+  metadata();map.invalidateSize();
+ });
+}
+start().catch(error=>fail(error.name==='AbortError'?'Сервер не ответил вовремя. Повторите загрузку.':error.message));
+</script></body></html>

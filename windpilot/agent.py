@@ -53,6 +53,7 @@ def run_forecast(config, origin, horizon=48, model_path="artifacts/model.joblib"
         forecast["power_pred"] = np.clip(raw_prediction, 0, 1)
         forecast["run_id"], forecast["model_version"] = run_id, model_version
         forecast["lead_hours"] = (forecast.valid_at - origin).dt.total_seconds() / 3600
+        append_event(out, "forecast_formed", run_id=run_id, rows=len(forecast), horizon=horizon)
         stats = {}
         for tid, part in forecast.groupby("turbine_id"):
             stats[int(tid)] = {"hours": len(part), "mean": float(part.power_pred.mean()),

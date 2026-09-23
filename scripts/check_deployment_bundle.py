@@ -14,7 +14,7 @@ def main():
     base.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=base) as temporary:
         clean = Path(temporary)
-        for name in ('windpilot', 'deployment'):
+        for name in ('windpilot', 'deployment', 'web'):
             shutil.copytree(ROOT / name, clean / name, ignore=shutil.ignore_patterns('__pycache__'))
         for name in ('dashboard.html', 'config.json'):
             shutil.copyfile(ROOT / name, clean / name)
@@ -36,6 +36,8 @@ original_hash = hashlib.sha256(Path('artifacts/model.joblib').read_bytes()).hexd
 with TestClient(create_app()) as client:
     assert client.get('/health').json()['model_available']
     assert 'id="themeToggle"' in client.get('/').text
+    assert client.get('/map/windy').status_code == 200
+    assert not client.get('/map/config').json()['enabled']
     assert set(client.get('/quality').json()['metrics_by_turbine']) == {'1', '2'}
     count = 0
     for day in pd.date_range('2026-01-31', '2026-02-28'):

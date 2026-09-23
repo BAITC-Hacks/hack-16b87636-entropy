@@ -27,7 +27,10 @@ def check(base):
     live = get('/forecast/live?horizon=48').json()
     assert live['mode'] == 'live_demo' and len(live['forecast']) == 96
     assert not live['baseline']
-    assert abs((datetime.now(timezone.utc) - datetime.fromisoformat(live['forecast_origin'])).total_seconds()) < 180
+    assert abs((datetime.now(timezone.utc) - datetime.fromisoformat(live['checked_at'])).total_seconds()) < 180
+    # Unchanged current inputs may reuse a run made earlier in this forecast hour.
+    assert abs((datetime.now(timezone.utc) - datetime.fromisoformat(live['forecast_origin'])).total_seconds()) < 3700
+    assert get('/agent/status').json()['enabled']
     assert all(0 <= row['power_pred'] <= 1 and row['weather_issued_at'] is None for row in live['forecast'])
     print('PASS: public HTTP, models, history boundaries, trace, metrics and real live weather. Browser QA still required.')
 

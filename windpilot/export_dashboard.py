@@ -23,7 +23,7 @@ def main():
                     raise RuntimeError(f"Cannot embed {origin_day} / {horizon}: {response.text}")
                 data = response.json()
                 # Keep only fields needed by the portable UI and its CSV export.
-                fields = ["run_id", "turbine_id", "forecast_origin", "valid_at", "power_pred", "weather_source", "weather_issued_at", "model_version"]
+                fields = ["run_id", "turbine_id", "forecast_origin", "valid_at", "power_pred", "weather_source", "weather_issued_at", "model_version", "wind_speed", "temperature"]
                 data["forecast"] = [{key: row[key] for key in fields} for row in data["forecast"]]
                 runs[f"{origin_day:%Y-%m-%d}_{horizon}"] = data
             print(f"Embedded {origin_day:%Y-%m-%d}", flush=True)
