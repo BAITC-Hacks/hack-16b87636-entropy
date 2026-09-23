@@ -1,0 +1,15 @@
+{
+  "history_timezone": "Asia/Almaty",
+  "timezone_basis": "User confirmed CSV timestamps are station local time (Asia/Almaty).",
+  "turbines": [
+    {"id": 1, "latitude": 43.645150, "longitude": 78.535604, "coordinate_source": "https://maps.app.goo.gl/iN6svMt69D5qRpFU9"},
+    {"id": 2, "latitude": 43.643198, "longitude": 78.538828, "coordinate_source": "https://maps.app.goo.gl/8UQMwsYavY6nLvFY8"}
+  ],
+  "weather": {
+    "model": "ecmwf_ifs",
+    "wind_variable": "wind_speed_100m",
+    "publication_lag_hours": 12,
+    "availability_basis": "Conservative assumption: initialization + 12 hours; exact historical publication timestamps are not supplied by this API.",
+    "cache_dir": "data/weather_cache"
+  }
+}
