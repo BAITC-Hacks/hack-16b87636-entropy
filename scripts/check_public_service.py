@@ -20,6 +20,13 @@ def check(base):
     assert get('/health').json()['model_available']
     assert 'id="themeToggle"' in get('/').text
     assert set(get('/quality').json()['metrics_by_turbine']) == {'1', '2'}
+    comparison = get('/history?start=2026-01-01&end=2026-01-31').json()
+    assert comparison['counts']['paired'] == 1488
+    august = get('/history?start=2025-08-01&end=2025-08-31').json()
+    assert august['counts']['paired'] > 0
+    assert any(n['code'] == 'retrospective' for n in august['notices'])
+    absent = get('/history?start=2026-08-01&end=2026-08-31').json()
+    assert absent['counts']['actual'] == 0 and absent['counts']['predicted'] == 0
     for date, horizon in [('2026-02-01', 24), ('2026-03-01', 48)]:
         run = get(f'/forecast?date={date}&horizon={horizon}&offline=true').json()
         assert len(run['forecast']) == horizon * 2

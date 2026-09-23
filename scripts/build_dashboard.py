@@ -20,7 +20,9 @@ def main():
         raise ValueError('Expected the real 58-run snapshot, not mock data.')
     html = (ROOT / 'web/dashboard.template.html').read_text(encoding='utf-8')
     html = html.replace('/*CSS*/', (ROOT / 'web/dashboard.css').read_text(encoding='utf-8'))
-    html = html.replace('/*APP*/', (ROOT / 'web/dashboard.js').read_text(encoding='utf-8'))
+    html = html.replace('/*APP*/', (ROOT / 'web/dashboard.js').read_text(encoding='utf-8') + '\n' +
+                        (ROOT / 'web/weather.js').read_text(encoding='utf-8') + '\n' +
+                        (ROOT / 'web/history.js').read_text(encoding='utf-8'))
     html = html.replace('/*DATA_START*/{}/*DATA_END*/', '/*DATA_START*/' + json.dumps(data, ensure_ascii=False, separators=(',', ':'), allow_nan=False).replace('</', '<\\/') + '/*DATA_END*/')
     path.write_text(html, encoding='utf-8')
     print(f'Built {path.name}: {len(data["runs"])} real runs, inline CSS/JS; optional Windy view loads separately.')

@@ -3,8 +3,10 @@
 <meta name="referrer" content="strict-origin-when-cross-origin"><title>WindPilot · карта Windy</title>
 <style>
 :root{color-scheme:light;--bg:#f3f6fa;--card:#fff;--text:#162536;--muted:#556577;--line:#dae2ec;--accent:#1e6ff2}html[data-theme=dark]{color-scheme:dark;--bg:#111b28;--card:#182638;--text:#eaf1f9;--muted:#bdcbdb;--line:#33465d;--accent:#88b5ff}*{box-sizing:border-box}html,body{margin:0;height:100%;font:12px/1.5 'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text)}#wp-toolbar{height:68px;padding:10px 16px;display:flex;align-items:center;gap:12px;background:var(--card);border-bottom:1px solid var(--line)}#wp-info{flex:1;min-width:0}#wp-info strong{font-size:12px}#wp-time{color:var(--muted);font-size:11px}#wp-place{border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--text);font:inherit;padding:8px 10px;cursor:pointer}#windy{width:100%;height:calc(100% - 68px)}#wp-state{position:absolute;z-index:10000;inset:68px 0 0;display:grid;place-content:center;gap:12px;padding:28px;background:var(--bg);text-align:center;color:var(--muted)}#wp-state[hidden]{display:none}#wp-state p{max-width:440px;margin:0}#wp-state button{justify-self:center;padding:8px 16px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--text);font:inherit;cursor:pointer}.wp-marker{background:#1e6ff2;color:white;border:2px solid white;border-radius:50%;font:600 11px/24px 'Segoe UI',sans-serif;text-align:center;box-shadow:0 2px 6px #0005}#wp-loading{color:var(--muted);font-size:10px}#wp-place:disabled{opacity:.4;cursor:default}
+#wp-date-controls{display:flex;gap:7px;align-items:center}#wp-date-controls label{display:grid;gap:2px;color:var(--muted);font-size:10px}#wp-date-controls input,#wp-date-controls button{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px;font:inherit}#wp-date-controls button{cursor:pointer;align-self:end}#wp-date-controls :disabled{opacity:.45;cursor:default}#wp-date-note{padding:5px 16px;background:var(--card);border-bottom:1px solid var(--line);color:var(--muted);font-size:10px;min-height:26px}#wp-date-note[role=alert]{color:var(--text)}#windy{height:calc(100% - 105px)}#wp-state{inset:105px 0 0}@media(max-width:700px){#wp-toolbar{height:auto;min-height:112px;flex-wrap:wrap}#wp-info{flex-basis:70%}#wp-date-controls{width:100%}#windy{height:calc(100% - 160px)}#wp-state{inset:160px 0 0}}
 </style></head><body>
-<div id="wp-toolbar"><div id="wp-info"><strong id="wp-layer">Windy · ветер · GFS · у поверхности</strong><div id="wp-time">Ожидаем данные карты…</div><div id="wp-loading" role="status"></div></div><button id="wp-place" disabled>К установкам</button></div>
+<div id="wp-toolbar"><div id="wp-info"><strong id="wp-layer">Windy · ветер · GFS · у поверхности</strong><div id="wp-time">Ожидаем данные карты…</div><div id="wp-loading" role="status"></div></div><div id="wp-date-controls"><label>Дата · UTC+5<input id="wp-date" type="date" disabled aria-describedby="wp-date-note"></label><label>Час<input id="wp-hour" type="time" step="3600" disabled aria-describedby="wp-date-note"></label><button id="wp-show" disabled>Показать</button><button id="wp-now" disabled>Сейчас</button></div><button id="wp-place" disabled>К установкам</button></div>
+<div id="wp-date-note" role="status">Прогноз ветра на доступные ближайшие дни. Архива прошлых месяцев на этой карте нет.</div>
 <div id="windy" aria-label="Интерактивная карта прогноза ветра"></div>
 <div id="wp-state" role="status"><strong id="wp-state-title">Подключаем карту Windy</strong><p id="wp-state-text">Загружаем текущий прогноз ветра. Исторические расчёты WindPilot остаются отдельно.</p><button id="wp-retry" hidden>Повторить загрузку</button></div>
 <script>
@@ -15,6 +17,23 @@ try{theme(parent.document.documentElement.dataset.theme)}catch(_){}
 addEventListener('message',event=>{if(event.origin===location.origin&&event.source===parent&&event.data?.type==='windpilot-theme')theme(event.data.theme)});
 function fail(message){clearTimeout(watchdog);el('wp-state').hidden=false;el('wp-state-title').textContent='Карта временно недоступна';el('wp-state-text').textContent=message;el('wp-retry').hidden=false}
 function script(src){return new Promise((resolve,reject)=>{const node=document.createElement('script');node.src=src;node.onload=resolve;node.onerror=()=>reject(new Error('Не удалось загрузить библиотеку карты. Проверьте интернет и блокировщики.'));document.head.append(node)})}
+function localParts(at){const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Almaty',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(at)).map(x=>[x.type,x.value]));return {date:`${p.year}-${p.month}-${p.day}`,hour:`${p.hour}:00`}}
+function installTimeControls(store){
+ const date=el('wp-date'),hour=el('wp-hour'),note=el('wp-date-note');let requested=null;
+ date.min=localParts(Date.now()).date;
+ const allowed=store.getAllowed('timestamp');
+ if(Array.isArray(allowed)&&allowed.length&&allowed.every(v=>Number.isFinite(v))){date.min=localParts(Math.max(Date.now(),Math.min(...allowed))).date;date.max=localParts(Math.max(...allowed)).date}
+ function sync(){const at=Number(store.get('timestamp'));if(!Number.isFinite(at))return;const p=localParts(at);date.value=p.date;hour.value=p.hour}
+ function message(text,error=false){note.textContent=text;note.setAttribute('role',error?'alert':'status')}
+ function select(at){const previous=Number(store.get('timestamp'));requested=at;
+  try{store.set('timestamp',at);const actual=Number(store.get('timestamp'));if(!Number.isFinite(actual)||Math.abs(actual-at)>60000){requested=null;sync();message('Эта дата или час недоступны в текущем прогнозе Windy. Выберите время на встроенной шкале карты.',true);return}sync();message('Выбран прогноз ветра на '+date.value+' '+hour.value+' · UTC+5. Это время прогноза, а не измерение на станции.');if(previous===actual)requested=null}
+  catch(_){requested=null;sync();message('Windy не поддерживает выбранное время. Выберите доступную дату на временной шкале.',true)}
+ }
+ el('wp-show').addEventListener('click',()=>{date.min=localParts(Date.now()).date;if(!date.value||!hour.value||!date.checkValidity()||!hour.checkValidity()){message('Выберите сегодня или доступную будущую дату и целый час. Архива прошлых месяцев здесь нет.',true);return}const at=Date.parse(`${date.value}T${hour.value}:00+05:00`);if(!Number.isFinite(at)){message('Проверьте дату и час.',true);return}select(at)});
+ el('wp-now').addEventListener('click',()=>select(Math.floor(Date.now()/3600000)*3600000));
+ store.on('timestamp',()=>{sync();if(requested===null)message('Время слоя изменено на шкале Windy. Карта показывает погодный прогноз, не фактическую выработку.');requested=null});
+ for(const id of ['wp-date','wp-hour','wp-show','wp-now'])el(id).disabled=false;sync();
+}
 el('wp-retry').addEventListener('click',()=>location.reload());
 async function start(){
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);let cfg;
@@ -28,6 +47,7 @@ async function start(){
  const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
  windyInit({key:cfg.key,lat,lon,zoom:7,product:cfg.product,overlay:cfg.overlay,level:cfg.level,timestamp:Date.now(),lang:'ru',hourFormat:'24h',particlesAnim:reduced?'off':'on',verbose:false},api=>{
   const {map,store,broadcast}=api;
+  installTimeControls(store);
   api.overlays.wind.setMetric('m/s');
   for(const t of cfg.turbines){const popup=document.createElement('div');popup.textContent=`Установка ${t.id} · ${t.latitude.toFixed(6)}, ${t.longitude.toFixed(6)}. Входы модели мощности: Open-Meteo, ветер 100 м.`;
    const icon=L.divIcon({className:'wp-marker',html:String(Number(t.id)),iconSize:[28,28],iconAnchor:[14,14]});

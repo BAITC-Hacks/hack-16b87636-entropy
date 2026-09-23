@@ -19,6 +19,8 @@ from .dashboard_data import baseline_at, quality_data
 from .live import LIVE_ENDPOINT, run_live_forecast
 from .scheduler import ForecastScheduler
 from .map_view import install_map_routes
+from .weather_overview import WeatherOverview
+from .history_view import install_history_routes
 
 
 def create_app(config_path="config.json", model_path="artifacts/model.joblib",
@@ -41,7 +43,19 @@ def create_app(config_path="config.json", model_path="artifacts/model.joblib",
     app = FastAPI(title="WindPilot", version="0.2.0", lifespan=lifespan,
                   description="Date denotes the first forecast day in station local time; origin is 23:00 the preceding day.")
     connection = {"checked_at": None, "monotonic": 0, "status": "offline"}
+    overview_weather = WeatherOverview()
     install_map_routes(app, config_path)
+    install_history_routes(app)
+
+    @app.get("/weather/overview")
+    def weather_overview(turbine_id: int = Query(default=1, ge=1, le=2), refresh: bool = False):
+        try:
+            result = overview_weather.get(read_config(config_path), turbine_id, refresh)
+            connection.update(status="online", checked_at=result['received_at'], monotonic=time.monotonic())
+            return result
+        except ForecastError as exc:
+            connection.update(status="offline", checked_at=pd.Timestamp.now(tz="UTC").isoformat(), monotonic=time.monotonic())
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.get("/agent/status")
     def agent_status():

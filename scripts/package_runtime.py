@@ -16,7 +16,11 @@ def sha(data):
 def main():
     files = [ROOT / name for name in (
         'artifacts/model.joblib', 'artifacts/validation_model.joblib',
-        'artifacts/metrics.json', 'data/processed/hourly.csv',
+        'artifacts/metrics.json', 'artifacts/model_metadata.json',
+        'artifacts/validation_predictions.csv', 'data/processed/hourly.csv',
+        'artifacts/august_2025/model.joblib', 'artifacts/august_2025/model_metadata.json',
+        'artifacts/august_2025/validation_predictions.csv', 'artifacts/august_2025/metrics.json',
+        'artifacts/august_2025/weather_selections.json',
     )]
     files += sorted((ROOT / 'data/weather_cache').glob('*.json'))
     for filename in ('forecast.csv', 'analysis.json', 'trace.json', 'weather.csv'):
@@ -29,6 +33,7 @@ def main():
         'Existing weights, January validation split and normalized power remain unchanged.',
         'No raw CSVs, credentials, environment files or live user requests are packaged.',
         'Weather archive provenance and publication-lag assumptions remain unverified as documented.',
+        'August 2025 uses a separate pre-August model; history comparison selects lead hours 1-24 only.',
     ]}
     with zipfile.ZipFile(target, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as bundle:
         for path in sorted(files):

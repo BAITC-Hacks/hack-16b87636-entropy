@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const DAY=86400000,HOUR=3600000,FIRST=Date.parse('2026-01-31T00:00:00Z');
 const state={page:'overview',scope:'both',horizon:48,day:0,mode:'historical',data:null,busy:false,offline:location.protocol==='file:',request:0,agent:null};
-const names={overview:'Обзор прогноза',hourly:'По часам',planner:'Подобрать период',agent:'Работа агента',help:'Как это работает',map:'Карта ветра'};
+const names={history:'Прогноз и факт',weather:'Погода на площадке',overview:'Обзор прогноза',hourly:'По часам',planner:'Подобрать период',agent:'Работа агента',help:'Как это работает',map:'Карта ветра'};
 const finite=n=>typeof n==='number'&&Number.isFinite(n),fmt=(n,d=1)=>finite(n)?n.toLocaleString('ru-RU',{minimumFractionDigits:d,maximumFractionDigits:d}):'—',pct=(n,d=1)=>finite(n)?fmt(n*100,d)+'%':'—';
 const dateStr=n=>new Date(FIRST+n*DAY).toISOString().slice(0,10);
 const humanDate=(v,opts={})=>new Intl.DateTimeFormat('ru-RU',{timeZone:'Asia/Almaty',day:'2-digit',month:'short',...opts}).format(new Date(v));
@@ -19,7 +19,7 @@ function series(){
 }
 let toastTimer,slideTimer,chartGeometry;
 function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4500)}
-function showPage(page){if(!names[page])return;state.page=page;document.body.classList.toggle('map-page',page==='map');document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!==`page-${page}`);document.querySelectorAll('.nav-item').forEach(b=>{const active=b.dataset.page===page;b.classList.toggle('active',active);if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});$('pageName').textContent=names[page];window.scrollTo({top:0,behavior:'smooth'});if(page==='agent')pollAgent();if(page==='map')openWindMap()}
+function showPage(page){if(!names[page])return;state.page=page;document.body.classList.toggle('weather-page',page==='weather');document.body.classList.toggle('map-page',page==='map');document.body.classList.toggle('history-page',page==='history');document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!==`page-${page}`);document.querySelectorAll('.nav-item').forEach(b=>{const active=b.dataset.page===page;b.classList.toggle('active',active);if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});$('pageName').textContent=names[page];window.scrollTo({top:0,behavior:'smooth'});if(page==='agent')pollAgent();if(page==='map')openWindMap();if(page==='weather')loadSiteWeather();window.historyView?.onPageChanged(page)}
 function openWindMap(){if(location.protocol==='file:')return;const frame=$('windMap');frame.hidden=false;$('mapPlaceholder').hidden=true;if(!frame.getAttribute('src'))frame.src='/map/windy'}
 function mapTheme(){const frame=$('windMap');if(frame.getAttribute('src')&&location.protocol!=='file:')frame.contentWindow?.postMessage({type:'windpilot-theme',theme:document.documentElement.dataset.theme},location.origin)}
 new MutationObserver(mapTheme).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
@@ -41,7 +41,7 @@ async function loadLive(quiet=false){if(state.busy)return;if(location.protocol==
 function showError(error,prefix){$('errorNotice').textContent=prefix+' '+(error.name==='AbortError'?'Погодный источник не ответил вовремя. Повторите запрос позже.':error.message);$('errorNotice').hidden=false}
 function render(){const d=state.data,live=state.mode==='live_demo';$('horizonTitle').textContent=state.horizon===24?'24 часа':'48 часов';$('originLabel').textContent=d?humanDate(d.forecast_origin,{year:'numeric',hour:'2-digit',minute:'2-digit'})+' · UTC+5':'Прогноз не загружен';$('modeLabel').textContent=live?'ДЕМОНСТРАЦИЯ · СЕГОДНЯ':'ИСТОРИЯ ПРОГНОЗОВ';$('liveNotice').hidden=!live;$('timelineCard').hidden=live;$('scopeSelect').value=state.scope;document.querySelectorAll('[data-horizon]').forEach(b=>{const active=Number(b.dataset.horizon)===state.horizon;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active))});
  const issue=d?.forecast.find(r=>r.weather_issued_at)?.weather_issued_at;$('weatherBadge').hidden=!issue;if(issue)$('weatherBadge').textContent=`Выпуск ${timeStr(issue)} · за ${fmt((Date.parse(d.forecast_origin)-Date.parse(issue))/HOUR,0)} ч до запуска`;
- renderSummary();renderChart();renderHourly();renderPlanner();renderAgent();$('download').disabled=!d||state.busy;
+ renderSummary();renderChart();renderHourly();renderPlanner();renderAgent();$('download').disabled=!d||state.busy;window.historyView?.syncModes();
 }
 function renderSummary(){const rows=series().filter(r=>finite(r.power));$('scopeCaption').textContent=state.scope==='both'?'Средняя доля максимальной мощности двух установок.':'Доля максимальной мощности выбранной установки.';$('chartSubtitle').textContent=scopeLabel()+', %';
  if(!rows.length){for(const id of ['meanValue','peakValue','lowValue','windValue'])$(id).textContent='—';for(const id of ['unitMeans','peakCaption','lowCaption'])$(id).textContent='';$('insightTitle').textContent='Расчёт не загружен';$('insightText').textContent='Выберите дату и получите прогноз.';return}
