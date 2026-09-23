@@ -28,6 +28,17 @@ async function main() {
   assert.equal(d.querySelectorAll('#powerChart path').length, 2);
   assert.equal(d.getElementById('dataNotice').hidden, false);
   assert.equal(d.getElementById('connectionText').textContent, 'Офлайн');
+  // Theme switching must not reload/recompute the displayed forecast.
+  const originalChart = d.getElementById('powerChart').innerHTML;
+  d.getElementById('themeToggle').click();
+  assert.equal(d.documentElement.dataset.theme, 'dark');
+  assert.equal(d.getElementById('themeIcon').getAttribute('href'), '#i-sun');
+  assert.equal(d.getElementById('powerChart').innerHTML, originalChart);
+  d.getElementById('themeToggle').click();
+  assert.equal(d.documentElement.dataset.theme, 'light');
+  assert.match(d.querySelector('#page-forecast .hero .wind-decor').getAttribute('aria-hidden'), /true/);
+  assert.equal(d.querySelectorAll('.wind-decor path').length, 9);
+  assert.match(d.getElementById('calendarHint').textContent, /Архивный прогноз погоды доступен только для прошедших дат/);
   d.querySelector('[data-turbine="1"]').click();
   assert.equal(d.querySelectorAll('#powerChart path').length, 1);
   assert.match(d.getElementById('countValue').textContent, /48/);
@@ -43,12 +54,19 @@ async function main() {
   assert.equal(d.getElementById('datePicker').value, '2026-02-28');
   assert.match(d.getElementById('originLabel').textContent, /28.*2026/);
   assert.equal(d.getElementById('errorNotice').hidden, true);
+  const calendar = d.getElementById('datePicker');
+  calendar.value = '2026-03-01';
+  assert.equal(calendar.validity.rangeOverflow, true);
+  calendar.dispatchEvent(new window.Event('change'));
+  assert.equal(calendar.value, '2026-02-28');
+  assert.match(d.getElementById('toast').textContent, /Живой прогноз/);
+  assert.match(d.getElementById('originLabel').textContent, /28.*2026/);
   d.getElementById('download').click();
   assert.equal(downloads.length, 1);
   const csv = await downloads[0].text();
   assert.equal(csv.trim().split('\r\n').length, 25);
   assert.match(csv, /weather_issued_at/);
-  d.querySelector('.nav-btn[data-page="agent"]').click();
+  d.querySelector('.agent-entry[data-page="agent"]').click();
   assert.equal(d.getElementById('page-agent').hidden, false);
   assert.equal(d.querySelectorAll('#agentSteps .step').length, 4);
   d.querySelector('.nav-btn[data-page="quality"]').click();
@@ -61,7 +79,32 @@ async function main() {
   assert.match(d.getElementById('toast').textContent, /через сервер/);
   assert.equal(d.getElementById('liveNotice').hidden, true);
   assert.equal(failures.length, 0, failures.join('\n'));
-  console.log('PASS: real embedded data, turbine/horizon switches, final timeline day, CSV, all three screens, quality table, honest offline live-mode refusal.');
+  console.log('PASS: real snapshots, switches, date limits/help, CSV, agent entry, quality, honest live refusal, decoration and theme without changing forecast.');
   dom.window.close();
+
+  // Simulated storage: saved preference is applied before the app renders.
+  const storage = new Map([['windpilot-theme', 'dark']]);
+  const openStored = () => new JSDOM(fs.readFileSync(path.join(__dirname, '../dashboard.html'), 'utf8'), {
+    url: 'file:///dashboard.html', runScripts: 'dangerously', virtualConsole,
+    beforeParse(w) {
+      w.scrollTo = () => {};
+      Object.defineProperty(w, 'localStorage', {value: {
+        getItem: key => storage.get(key) ?? null,
+        setItem: (key, value) => storage.set(key, String(value)),
+      }});
+    }
+  });
+  const first = openStored();
+  await wait(20);
+  assert.equal(first.window.document.documentElement.dataset.theme, 'dark');
+  first.window.document.getElementById('themeToggle').click();
+  assert.equal(storage.get('windpilot-theme'), 'light');
+  first.window.close();
+  const reloaded = openStored();
+  await wait(20);
+  assert.equal(reloaded.window.document.documentElement.dataset.theme, 'light');
+  reloaded.window.close();
+  assert.equal(failures.length, 0, failures.join('\n'));
+  console.log('PASS: saved theme reload; blocked storage handled in earlier file-mode checks.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
